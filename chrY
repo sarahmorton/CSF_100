@@ -1,0 +1,15 @@
+##analysis of Y chromosome gene expression from YARN
+
+## ----echo=FALSE,include=FALSE--------------------------------------------
+library(yarn)
+library(dplyr)
+library(edgeR)
+source("foo.R")
+source("downloadGTEx.R")
+load("all_eSets.rda")
+
+#look into gender matching of samples, but need to known which genes are on Y
+Y <- eSet[ , eSet$seqid == "Y"]
+checkMisAnnotation(eSet,"Gender",controlGenes="Y", columnID="seqid", legendPosition="topleft")
+checkMisAnnotation(eSetF,"Gender",controlGenes="Y", columnID="seqid", legendPosition="bottomright")
+checkMisAnnotation(eSetNF,"Gender",controlGenes="Y", columnID="seqid", legendPosition="bottomright")
