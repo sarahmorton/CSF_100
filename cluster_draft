@@ -1,0 +1,142 @@
+#clustering code from visit with Joe in Boston
+#is still draft form
+
+#check group membership for phenotype enrichment
+load("~/Box Sync/Clinical_Projects/neonatal sepsis/NS_RNA/all_eSets.rda")
+load("~/Box Sync/Clinical_Projects/neonatal sepsis/NS_RNA/raw_filter_normalize100.rda")
+
+#sample correlation after filtering and log transformation
+cortest<- cor(NS_data1_LOG2, use = "all.obs", method = "pearson")
+cortest
+#write.csv(cortest, file= "results100/filter_log2/corrtest.csv", row.names= TRUE, col.names = TRUE)
+corsig <- rcorr(as.matrix(NS_data1_LOG2), type="pearson")
+corsig$r #correlation coefficients
+corsig$P #correlation p values
+corrplot(cortest, type = "upper", order = "hclust", tl.pos = "td", tl.cex=0.5,
+         tl.col = "black", tl.srt = 45)
+corrplot(corsig$r, type = "upper", order = "hclust", 
+         tl.col = "black", tl.srt = 45)
+
+low_corr <- as.data.frame(corsig$r)
+
+#repeat on euclidean distane of log tranformed data
+hc = hclust(dist(t(NS_data1_LOG2)))
+two <- cutree(hc, k=2)
+plot(hc, col=two)
+#need to color by groups
+immune <- two[two==2] %>% as.data.frame()
+immune <- NS_meta[NS_meta$IPM_ID %in% rownames(immune),]
+nonimmune <- NS_meta[!NS_meta$IPM_ID %in% rownames(meta),]
+nonimmune$immune <- "nonimmune"
+#now repeat analysis with immune vs non cohorts, identify genes that are highest in immune cohort, look at variablity of the expression of those genes to hypothesize if similar reaction or not
+
+#check for phenotypic enrichment
+immune_pih <- sum(immune$HydrocephalusStatus=="PIH") %>% as.numeric()
+nonimmune_pih <- sum(nonimmune$HydrocephalusStatus=="PIH")%>% as.numeric()
+freq <- c(immune_pih, (nrow(immune)-immune_pih), nonimmune_pih, (nrow(nonimmune)-nonimmune_pih))
+freqMat <- matrix(freq, byrow = T, ncol = 2)
+(immune_pih/(nrow(immune)-immune_pih))/(nonimmune_pih/nrow(nonimmune)-nonimmune_pih) # OR
+prop.test(freqMat)$p.value #p
+
+#top changed genes
+dds_NS <- DESeqDataSetFromMatrix(countData = NS_data1_LOG2, colData = NS_meta, design = ~ HydrocephalusStatus)
+dds_NS <- DESeq(dds_NS)
+dds_NS <- estimateSizeFactors(dds_NS)
+size <- sizeFactors(dds_NS)
+normalized_counts <- counts(dds_NS, normalized=TRUE)
+#save(dds_NS, normalized_counts, file = "filtered_log_data.rda")
+
+dds_NS <- DESeqDataSetFromMatrix(countData = round(normalized_counts), colData = NS_meta, design = ~ HydrocephalusStatus)
+dds_NS <- DESeq(dds_NS)
+#save(dds_NS, file = "filtered_log_normalized_data.rda")
+
+# Plot dispersion estimates
+plotDispEsts(dds_NS)
+# Find names of coefficients- This is what you use to define your contrasts
+resultsNames(dds_NS)
+
+## Define contrasts for the two lines- your contrasts must be present in resultsNames(). This is how you make the direct comparison. The second one must always be what you are comparing to (wildtype, etc). 
+contrast_NS <- list( "HydrocephalusStatusNPIH", "HydrocephalusStatusPIH")
+
+# Extract results table
+res_table_NS <- results(dds_NS, contrast=contrast_NS)
+head(res_table_NS)
+
+## Summarize results
+summary(res_table_NS, alpha = 0.01)
+
+#choose significant DE genes
+padj.cutoff <- 0.01
+lfc.cutoff <- 3
+
+threshold_NS <- res_table_NS$padj < padj.cutoff & abs(res_table_NS$log2FoldChange) > lfc.cutoff
+length(which(threshold_NS == TRUE)) #168
+res_table_NS$threshold <- threshold_NS 
+NS_sig<- subset(res_table_NS, threshold == TRUE)
+
+#volcano plot
+df <- data.frame(res_table_NS)
+ggplot(df) +
+  geom_point(aes(x=log2FoldChange, y=-log10(padj), colour=threshold_NS)) +
+  xlim(c(-2,2)) +
+  # ylim(c(0,1)) +
+  ggtitle('NS') +
+  xlab("log2 fold change") +
+  ylab("-log10 adjusted p-value") +
+  theme(legend.position = "none",
+        plot.title = element_text(size = rel(1.5)),
+        axis.title = element_text(size = rel(1.5)),
+        axis.text = element_text(size = rel(1.25)))
+# dev.copy(png,'results100/filter_log2/DESeq2_volcano')
+# dev.off()
+
+#heatmap
+library(pheatmap)
+sigNS <- row.names(NS_sig)
+norm_sigNS <- normalized_counts[sigNS,]
+annotation <- NS_meta[,c('HydrocephalusStatus','CSFCellCount','Ageatsamplecollection', 'Region'), drop=F]
+heat.colors <- brewer.pal(6, "YlOrRd")
+annotation.row <- NS_meta[,c("IPM_ID", "HydrocephalusStatus", "CSFCellCount", "Ageatsamplecollection","Region")]
+heats =pheatmap(norm_sigNS, color = heat.colors, cluster_rows = T, show_rownames=F, annotation=annotation,
+                annotation.row= annotation.row, border_color=NA, fontsize = 4, scale="row",
+                fontsize_row = 10)
+# dev.copy(png,'results100/filter_log2/DESeq2_cluster_heat_LFC3_5')
+# dev.off()
+
+#test assocation of clusters
+hc = hclust(dist(t(norm_sigNS)))
+three <- cutree(hc, k=3)
+#need to color by groups
+immuneStrong <- three[three==3] %>% as.data.frame()
+immuneStrong <- NS_meta[NS_meta$IPM_ID %in% rownames(immuneStrong),]
+immuneStrong$immune <- "immuneStrong"
+immuneMod <- three[three==2] %>% as.data.frame()
+immuneMod <- NS_meta[NS_meta$IPM_ID %in% rownames(immuneMod),]
+immuneMod$immune <- "immuneMod"
+nonimmune <- three[three==1] %>% as.data.frame()
+nonimmune <- NS_meta[NS_meta$IPM_ID %in% rownames(nonimmune),]
+nonimmune$immune <- "nonimmune"
+
+##
+plot(hc, col=three)
+
+#now repeat analysis with immune vs non cohorts, identify genes that are highest in immune cohort, look at variablity of the expression of those genes to hypothesize if similar reaction or not
+
+#check for phenotypic enrichment
+immune_pih <- sum(immune$HydrocephalusStatus=="PIH") %>% as.numeric()
+nonimmune_pih <- sum(nonimmune$HydrocephalusStatus=="PIH")%>% as.numeric()
+freq <- c(immune_pih, (nrow(immune)-immune_pih), nonimmune_pih, (nrow(nonimmune)-nonimmune_pih))
+freqMat <- matrix(freq, byrow = T, ncol = 2)
+(immune_pih/(nrow(immune)-immune_pih))/(nonimmune_pih/nrow(nonimmune)-nonimmune_pih) # OR
+prop.test(freqMat)$p.value #p
+
+##heatmap
+library(gplots)
+library(RColorBrewer)
+hmcol<- colorRampPalette(brewer.pal(9, 'GnBu'))(100)
+selectx <- order(rowMeans(counts(dds_NS,normalized=TRUE)),decreasing=TRUE)[1:10]
+heatmap.2(counts(dds_NS,normalized=TRUE)[selectx,], col = hmcol,
+          Rowv = FALSE, Colv = FALSE, scale='none',
+          dendrogram='none', trace='none', margin=c(10,6))
+#dev.copy(png,'results100/filter_log2/DESeq2_heatmap1x')
+#dev.off()
