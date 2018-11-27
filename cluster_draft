@@ -1,6 +1,13 @@
 #clustering code from visit with Joe in Boston
 #is still draft form
 
+library(Hmisc)
+library(corrplot)
+library(DESeq2)
+library(dplyr)
+library(gplots)
+library(RColorBrewer)
+
 #check group membership for phenotype enrichment
 load("~/Box Sync/Clinical_Projects/neonatal sepsis/NS_RNA/all_eSets.rda")
 load("~/Box Sync/Clinical_Projects/neonatal sepsis/NS_RNA/raw_filter_normalize100.rda")
@@ -26,7 +33,7 @@ plot(hc, col=two)
 #need to color by groups
 immune <- two[two==2] %>% as.data.frame()
 immune <- NS_meta[NS_meta$IPM_ID %in% rownames(immune),]
-nonimmune <- NS_meta[!NS_meta$IPM_ID %in% rownames(meta),]
+nonimmune <- NS_meta[!NS_meta$IPM_ID %in% rownames(immune),]
 nonimmune$immune <- "nonimmune"
 #now repeat analysis with immune vs non cohorts, identify genes that are highest in immune cohort, look at variablity of the expression of those genes to hypothesize if similar reaction or not
 
@@ -44,11 +51,11 @@ dds_NS <- DESeq(dds_NS)
 dds_NS <- estimateSizeFactors(dds_NS)
 size <- sizeFactors(dds_NS)
 normalized_counts <- counts(dds_NS, normalized=TRUE)
-#save(dds_NS, normalized_counts, file = "filtered_log_data.rda")
+#save(dds_NS, normalized_counts, file = "cluster/filtered_log_data.rda")
 
 dds_NS <- DESeqDataSetFromMatrix(countData = round(normalized_counts), colData = NS_meta, design = ~ HydrocephalusStatus)
 dds_NS <- DESeq(dds_NS)
-#save(dds_NS, file = "filtered_log_normalized_data.rda")
+#save(dds_NS, file = "cluster/filtered_log_normalized_data.rda")
 
 # Plot dispersion estimates
 plotDispEsts(dds_NS)
@@ -56,7 +63,7 @@ plotDispEsts(dds_NS)
 resultsNames(dds_NS)
 
 ## Define contrasts for the two lines- your contrasts must be present in resultsNames(). This is how you make the direct comparison. The second one must always be what you are comparing to (wildtype, etc). 
-contrast_NS <- list( "HydrocephalusStatusNPIH", "HydrocephalusStatusPIH")
+contrast_NS <- list( "Intercept", "HydrocephalusStatus_PIH_vs_NPIH")
 
 # Extract results table
 res_table_NS <- results(dds_NS, contrast=contrast_NS)
@@ -70,7 +77,7 @@ padj.cutoff <- 0.01
 lfc.cutoff <- 3
 
 threshold_NS <- res_table_NS$padj < padj.cutoff & abs(res_table_NS$log2FoldChange) > lfc.cutoff
-length(which(threshold_NS == TRUE)) #168
+length(which(threshold_NS == TRUE)) #8061
 res_table_NS$threshold <- threshold_NS 
 NS_sig<- subset(res_table_NS, threshold == TRUE)
 
@@ -87,7 +94,7 @@ ggplot(df) +
         plot.title = element_text(size = rel(1.5)),
         axis.title = element_text(size = rel(1.5)),
         axis.text = element_text(size = rel(1.25)))
-# dev.copy(png,'results100/filter_log2/DESeq2_volcano')
+# dev.copy(png,'cluster/DESeq2_volcano')
 # dev.off()
 
 #heatmap
@@ -100,7 +107,7 @@ annotation.row <- NS_meta[,c("IPM_ID", "HydrocephalusStatus", "CSFCellCount", "A
 heats =pheatmap(norm_sigNS, color = heat.colors, cluster_rows = T, show_rownames=F, annotation=annotation,
                 annotation.row= annotation.row, border_color=NA, fontsize = 4, scale="row",
                 fontsize_row = 10)
-# dev.copy(png,'results100/filter_log2/DESeq2_cluster_heat_LFC3_5')
+# dev.copy(png,'cluster/DESeq2_cluster_heat_LFC3_5')
 # dev.off()
 
 #test assocation of clusters
@@ -131,12 +138,10 @@ freqMat <- matrix(freq, byrow = T, ncol = 2)
 prop.test(freqMat)$p.value #p
 
 ##heatmap
-library(gplots)
-library(RColorBrewer)
 hmcol<- colorRampPalette(brewer.pal(9, 'GnBu'))(100)
 selectx <- order(rowMeans(counts(dds_NS,normalized=TRUE)),decreasing=TRUE)[1:10]
 heatmap.2(counts(dds_NS,normalized=TRUE)[selectx,], col = hmcol,
           Rowv = FALSE, Colv = FALSE, scale='none',
           dendrogram='none', trace='none', margin=c(10,6))
-#dev.copy(png,'results100/filter_log2/DESeq2_heatmap1x')
-#dev.off()
+# dev.copy(png,'cluster/DESeq2_heatmap1x')
+# dev.off()
